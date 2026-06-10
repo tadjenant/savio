@@ -4455,6 +4455,24 @@ applyViewMode(S.viewMode||'mobile');
 
 
 // ── NUMBER FORMAT ────────────────────────────────────────────────────────
+function calcGoalHint(){
+  const end=document.getElementById('sv-end')?.value;
+  const amount=parseFloat((document.getElementById('sv-amount')?.value||'0').replace(/\s/g,'').replace(',','.'))||0;
+  const saved=parseFloat((document.getElementById('sv-saved')?.value||'0').replace(/\s/g,'').replace(',','.'))||0;
+  const hint=document.getElementById('sv-hint');
+  if(!hint)return;
+  if(!end||!amount){hint.style.display='none';return;}
+  const days=Math.ceil((new Date(end)-new Date())/(864e5));
+  if(days<=0){hint.style.display='none';return;}
+  const remaining=Math.max(0,amount-saved);
+  const perMonth=Math.ceil(remaining/Math.max(1,days/30));
+  const fr=S.lang==='fr',en=S.lang==='en';
+  hint.style.display='block';
+  hint.textContent=(fr?'~'+fmt(perMonth)+' '+((document.getElementById('sv-currency')?.value)||'DZD')+'/mois pour atteindre l\'objectif':
+    en?'~'+fmt(perMonth)+' '+((document.getElementById('sv-currency')?.value)||'DZD')+'/month to reach the goal':
+    '~'+fmt(perMonth)+' '+((document.getElementById('sv-currency')?.value)||'DZD')+'/мес чтобы достичь цели');
+}
+
 function fmtGoalInput(el){if(!el)return;let raw=el.value.replace(/[^\d.,]/g,'').replace(',','.');const p=raw.split('.');p[0]=p[0].replace(/\B(?=(\d{3})+(?!\d))/g,' ');el.value=p.length>1?p[0]+','+p[1]:p[0];el.dataset.raw=parseFloat(raw)||0;}
 function getGoalNum(id){const el=document.getElementById(id);if(!el)return 0;if(el.dataset&&el.dataset.raw!==undefined&&el.dataset.raw!=='')return parseFloat(el.dataset.raw)||0;return parseFloat((el.value||'0').replace(/\s/g,'').replace(',','.'))||0;}
 
@@ -4503,15 +4521,53 @@ function confirmDeleteGoal(id){
 }
 function addToGoal(id){
   const g=(S.goals||[]).find(x=>x.id===id);if(!g)return;
-  const m2=document.getElementById('gmenu-'+id);if(m2)m2.style.display='none';
   const modal=document.createElement('div');modal.className='modal-bg';modal.id='topup-modal';
-  const fr=S.lang==='fr';
-  modal.innerHTML=`<div class="modal-box" style="max-width:320px"><div class="modal-title">💰 ${fr?'Alimenter':'Пополнить'}</div><div style="font-size:13px;color:#8899bb;margin-bottom:12px">${g.name}</div><div style="margin-bottom:14px"><span class="fl">${fr?'Montant':'Сумма пополнения'}</span><input type="text" class="di" id="topup-amt" placeholder="0" inputmode="decimal" oninput="fmtGoalInput(this)" onkeydown="if(event.key==='Enter')saveTopup(${id})"><div style="font-size:11px;color:#4a6080;margin-top:4px">${fr?'Épargné':'Накоплено'}: ${fmt(g.saved)} ${fr?'sur':'из'} ${fmt(g.amount)} ${g.currency}</div></div><div style="display:flex;gap:8px"><button class="btn-g" onclick="saveTopup(${id})" style="flex:1">${fr?'Alimenter':'Пополнить'}</button><button class="btn-s" onclick="closeTopup()" style="padding:0 16px">${fr?'Annuler':'Отмена'}</button></div></div>`;
+  const fr=S.lang==='fr',en=S.lang==='en';
+  modal.innerHTML=`<div class="modal-box" style="max-width:320px"><div class="modal-title">${fr?'Alimenter':en?'Deposit':'Пополнить'}</div><div style="font-size:13px;color:#8899bb;margin-bottom:12px">${g.name}</div><div style="margin-bottom:10px"><span class="fl">${fr?'Montant':en?'Amount':'Сумма'}</span><input type="text" class="di" id="topup-amt" placeholder="0" inputmode="decimal" oninput="fmtGoalInput(this)" onkeydown="if(event.key==='Enter')saveTopup(${id})"></div><div style="margin-bottom:14px"><span class="fl">${fr?'Commentaire':en?'Comment':'Комментарий'} (${fr?'optionnel':en?'optional':'необязательно'})</span><input type="text" class="di" id="topup-note" placeholder="${fr?'Ex: Salaire juin':en?'E.g. June salary':'Напр. Зарплата июнь'}"></div><div style="font-size:11px;color:#4a6080;margin-bottom:14px">${fr?'Épargné':'Накоплено'}: ${fmt(g.saved)} ${fr?'sur':en?'of':'из'} ${fmt(g.amount)} ${g.currency}</div><div style="display:flex;gap:8px"><button class="btn-g" onclick="saveTopup(${id})" style="flex:1">${fr?'Alimenter':en?'Deposit':'Пополнить'}</button><button class="btn-s" onclick="closeTopup()" style="padding:0 16px">${fr?'Annuler':en?'Cancel':'Отмена'}</button></div></div>`;
   document.body.appendChild(modal);
   modal.addEventListener('click',e=>{if(e.target===modal)closeTopup();});
   setTimeout(()=>document.getElementById('topup-amt')?.focus(),50);
 }
-function saveTopup(id){const g=(S.goals||[]).find(x=>x.id===id);if(!g)return;const el=document.getElementById('topup-amt');const amt=parseFloat((el?.value||'0').replace(/\s/g,'').replace(',','.'))||0;if(!amt){el?.focus();return;}g.saved=(g.saved||0)+amt;saveState();closeTopup();renderGoals();}
+
+function saveTopup(id){
+  const g=(S.goals||[]).find(x=>x.id===id);if(!g)return;
+  const el=document.getElementById('topup-amt');
+  const amt=parseFloat((el?.value||'0').replace(/\s/g,'').replace(',','.'))||0;
+  if(!amt){el?.focus();return;}
+  const note=document.getElementById('topup-note')?.value||'';
+  g.saved=(g.saved||0)+amt;
+  if(!g.history)g.history=[];
+  g.history.push({type:'deposit',amount:amt,note,date:new Date().toISOString().slice(0,10)});
+  saveState();closeTopup();renderGoals();
+}
+
+function withdrawFromGoal(id){
+  const g=(S.goals||[]).find(x=>x.id===id);if(!g)return;
+  const modal=document.createElement('div');modal.className='modal-bg';modal.id='withdraw-modal';
+  const fr=S.lang==='fr',en=S.lang==='en';
+  const typeOpts=[
+    {val:'withdraw',label:fr?'Retrait':en?'Withdrawal':'Снятие'},
+    {val:'balance',label:fr?'Compensation solde':en?'Balance compensation':'Компенсация баланса'},
+  ].map(o=>`<option value="${o.val}">${o.label}</option>`).join('');
+  modal.innerHTML=`<div class="modal-box" style="max-width:320px"><div class="modal-title">${fr?'Retirer':en?'Withdraw':'Снять'}</div><div style="font-size:13px;color:#8899bb;margin-bottom:12px">${g.name}</div><div style="margin-bottom:10px"><span class="fl">${fr?'Type':en?'Type':'Тип'}</span><select class="ds" id="withdraw-type" style="height:36px">${typeOpts}</select></div><div style="margin-bottom:10px"><span class="fl">${fr?'Montant':en?'Amount':'Сумма'}</span><input type="text" class="di" id="withdraw-amt" placeholder="0" inputmode="decimal" oninput="fmtGoalInput(this)" onkeydown="if(event.key==='Enter')saveWithdraw(${id})"></div><div style="margin-bottom:14px"><span class="fl">${fr?'Commentaire':en?'Comment':'Комментарий'} (${fr?'optionnel':en?'optional':'необязательно'})</span><input type="text" class="di" id="withdraw-note" placeholder="${fr?'Ex: Remboursement balance':en?'E.g. Balance refund':'Напр. Компенсация минуса'}"></div><div style="font-size:11px;color:#4a6080;margin-bottom:14px">${fr?'Disponible':en?'Available':'Доступно'}: ${fmt(g.saved)} ${g.currency}</div><div style="display:flex;gap:8px"><button class="btn-g" onclick="saveWithdraw(${id})" style="flex:1;background:#c0503a;border-color:#ff6b6b">${fr?'Retirer':en?'Withdraw':'Снять'}</button><button class="btn-s" onclick="document.getElementById('withdraw-modal').remove()" style="padding:0 16px">${fr?'Annuler':en?'Cancel':'Отмена'}</button></div></div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener('click',e=>{if(e.target===modal)modal.remove();});
+  setTimeout(()=>document.getElementById('withdraw-amt')?.focus(),50);
+}
+
+function saveWithdraw(id){
+  const g=(S.goals||[]).find(x=>x.id===id);if(!g)return;
+  const el=document.getElementById('withdraw-amt');
+  const amt=parseFloat((el?.value||'0').replace(/\s/g,'').replace(',','.'))||0;
+  if(!amt){el?.focus();return;}
+  const type=document.getElementById('withdraw-type')?.value||'withdraw';
+  const note=document.getElementById('withdraw-note')?.value||'';
+  g.saved=Math.max(0,(g.saved||0)-amt);
+  if(!g.history)g.history=[];
+  g.history.push({type,amount:amt,note,date:new Date().toISOString().slice(0,10)});
+  saveState();document.getElementById('withdraw-modal')?.remove();renderGoals();
+}
+
 function closeTopup(){const m=document.getElementById('topup-modal');if(m)m.remove();}
 function editGoal(id){
   const g=(S.goals||[]).find(x=>x.id===id);if(!g)return;
@@ -4524,7 +4580,39 @@ function editGoal(id){
 }
 function saveGoalEdit(id){const g=(S.goals||[]).find(x=>x.id===id);if(!g)return;g.name=document.getElementById('eg-name').value.trim()||g.name;g.end=document.getElementById('eg-end').value||g.end;g.currency=document.getElementById('eg-cur').value;g.amount=parseFloat((document.getElementById('eg-amount').value||'').replace(/\s/g,'').replace(',','.'))||g.amount;g.saved=parseFloat((document.getElementById('eg-saved').value||'').replace(/\s/g,'').replace(',','.'))||0;g.priority=parseInt(document.getElementById('eg-priority').value)||g.priority;saveState();closeGoalEdit();renderGoals();}
 function closeGoalEdit(){document.getElementById('edit-goal-modal')?.remove();}
-function toggleGoalMenu(id){document.querySelectorAll('[id^="gmenu-"]').forEach(m=>{if(m.id!=='gmenu-'+id)m.style.display='none';});const m=document.getElementById('gmenu-'+id);if(m)m.style.display=m.style.display==='none'?'block':'none';setTimeout(()=>{const h=e=>{if(!e.target.closest('#gmenu-'+id)&&!e.target.closest('[onclick*="toggleGoalMenu('+id+')"')){if(m)m.style.display='none';document.removeEventListener('click',h);}};document.addEventListener('click',h);},10);}
+function toggleGoalHistory(id){
+  const hist=document.getElementById('ghist-'+id);
+  const tri=document.getElementById('gtri-'+id);
+  if(!hist)return;
+  const open=hist.style.display==='none';
+  hist.style.display=open?'block':'none';
+  if(tri)tri.style.transform=open?'rotate(0deg)':'rotate(-90deg)';
+}
+
+function toggleGoalMenu(id,e){
+  if(e)e.stopPropagation();
+  const fr=S.lang==='fr',en=S.lang==='en';
+  let menu=document.getElementById('goal-ctx-menu');
+  if(!menu){menu=document.createElement('div');menu.id='goal-ctx-menu';menu.style.cssText='display:none;position:fixed;background:#1a2740;border:1px solid #2a3f5f;border-radius:12px;padding:6px;z-index:9999;min-width:180px;box-shadow:0 8px 32px rgba(0,0,0,0.5)';document.body.appendChild(menu);}
+  if(menu.dataset.goalId==id&&menu.style.display!=='none'){menu.style.display='none';return;}
+  menu.dataset.goalId=id;
+  const mkBtn=(onclick,color,icon,label)=>`<button onclick="${onclick};document.getElementById('goal-ctx-menu').style.display='none'" style="display:flex;align-items:center;gap:9px;width:100%;padding:10px 13px;background:none;border:none;color:${color};font-size:13px;font-family:inherit;cursor:pointer;border-radius:8px" onmouseenter="this.style.background='rgba(121,165,242,0.08)'" onmouseleave="this.style.background='none'">${icon} ${label}</button>`;
+  const sep='<div style="height:1px;background:#2a3f5f;margin:3px 0"></div>';
+  const iPlus='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+  const iMinus='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+  const iEdit='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
+  const iDel='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>';
+  menu.innerHTML=
+    mkBtn(`addToGoal(${id})`,'#79a5f2',iPlus,fr?'Alimenter':en?'Deposit':'Пополнить')+
+    mkBtn(`withdrawFromGoal(${id})`,'#ff8fa0',iMinus,fr?'Retirer':en?'Withdraw':'Снять')+
+    sep+
+    mkBtn(`editGoal(${id})`,'#c8d8f0',iEdit,fr?'Modifier':en?'Edit':'Редактировать')+
+    sep+
+    mkBtn(`deleteGoal(${id})`,'#ff6b6b',iDel,fr?'Supprimer':en?'Delete':'Удалить');
+  if(e){const btn=e.currentTarget,rect=btn.getBoundingClientRect();let left=rect.right-180,top=rect.bottom+6;if(left<8)left=8;if(top+200>window.innerHeight-8)top=rect.top-206;menu.style.left=left+'px';menu.style.top=top+'px';}
+  menu.style.display='block';
+  setTimeout(()=>{const close=ev=>{if(!ev.target.closest('#goal-ctx-menu')&&!ev.target.closest('[onclick*="toggleGoalMenu"]')){menu.style.display='none';document.removeEventListener('click',close);}};document.addEventListener('click',close);},10);
+}
 function daysWord(n){const a=Math.abs(n);if(a%10===1&&a%100!==11)return 'день';if([2,3,4].includes(a%10)&&![12,13,14].includes(a%100))return 'дня';return 'дней';}
 
 function addGoal(){
@@ -4536,8 +4624,7 @@ function addGoal(){
   if(!end){alert(S.lang==='fr'?'Indiquez une date':'Укажите дату накопления');return;}
   if(!amount){alert(S.lang==='fr'?'Entrez un montant':'Введите сумму цели');return;}
   if(!S.goals)S.goals=[];
-if(!S.autoPayments)S.autoPayments=[];
-const _apDate=document.getElementById('ap-date');if(_apDate)_apDate.value=new Date().toISOString().slice(0,10);
+  if(!S.autoPayments)S.autoPayments=[];
   S.goals.push({id:Date.now(),name,end,start:new Date().toISOString().slice(0,10),amount,currency:document.getElementById('sv-currency')?.value||'DZD',saved,priority:parseInt(document.getElementById('sv-priority')?.value)||2});
   saveState();
   document.getElementById('sv-name').value='';
@@ -4550,57 +4637,74 @@ const _apDate=document.getElementById('ap-date');if(_apDate)_apDate.value=new Da
 
 function renderGoals(){
   if(!S.goals)S.goals=[];
-if(!S.autoPayments)S.autoPayments=[];
-const _apDate=document.getElementById('ap-date');if(_apDate)_apDate.value=new Date().toISOString().slice(0,10);
   const el=document.getElementById('sv-list');if(!el)return;
   const fb=document.getElementById('sv-form-body'),fa=document.getElementById('sv-form-arr');
   if(fb&&fa){if(S.goals.length===0){fb.style.display='block';fa.textContent='▼';}else{fb.style.display='none';fa.textContent='▶';}}
   if(!S.goals.length){el.innerHTML='<div class="es">'+t('no_goals').replace('\n','<br>')+'</div>';return;}
   const sorted=[...S.goals].sort((a,b)=>(a.priority||2)-(b.priority||2));
-  const fr=S.lang==='fr';
-  const PRIO_LABEL={1:fr?'Élevée':'Высокий',2:fr?'Moyenne':'Средний',3:fr?'Faible':'Низкий'};
-  const PRIO_COLOR={1:'#ff6b6b',2:'#ffd43b',3:'#79a5f2'};
+  const fr=S.lang==='fr', en=S.lang==='en';
+  const PRIO_LABEL={1:fr?'Élevée':en?'High':'Высокий',2:fr?'Moyenne':en?'Medium':'Средний',3:fr?'Faible':en?'Low':'Низкий'};
+  const PRIO_COLOR={1:'#b57bee',2:'#4dabf7',3:'#38d9a9'};
+  const PRIO_GRAD={1:'linear-gradient(90deg,#b57bee,#79a5f2)',2:'linear-gradient(90deg,#4dabf7,#38d9a9)',3:'linear-gradient(90deg,#38d9a9,#63e6be)'};
   const today=new Date();
   el.innerHTML=sorted.map(g=>{
     const rawPct=g.amount>0?(g.saved/g.amount)*100:0;
     const pct=Math.round(rawPct);
     const barW=Math.min(100,pct);
     const isOver=rawPct>100;
+    const priColor=PRIO_COLOR[g.priority]||'#4dabf7';
+    const priGrad=PRIO_GRAD[g.priority]||PRIO_GRAD[2];
     const daysLeft=Math.ceil((new Date(g.end)-today)/(864e5));
-    const daysStr=daysLeft>0?(fr?'Reste '+daysLeft+' j.':'Осталось '+daysLeft+' '+daysWord(daysLeft)):daysLeft===0?(fr?"Aujourd'hui!":'Сегодня!'):(fr?'Délai dépassé':'Срок прошёл');
-    const daysColor=daysLeft<0?'#ff6b6b':daysLeft<=14?'#ffd43b':'#8899bb';
-    const barColor=isOver?'#79a5f2':PRIO_COLOR[g.priority]||'#79a5f2';
+    const daysColor=daysLeft<0?'#ff6b6b':daysLeft<=14?'#ffd43b':'#fff';
     const remaining=Math.max(0,g.amount-g.saved);
     const perMonth=daysLeft>0?Math.ceil(remaining/Math.max(1,daysLeft/30)):0;
     const fmtEnd=g.end?g.end.split('-').reverse().join('.'):'—';
     const overMsg=isOver?`<div style="margin-top:6px;font-size:11px;color:#79a5f2;font-weight:600">🎉 ${fr?'Objectif «'+g.name+'» atteint à '+pct+'%!':'Вы достигли цель «'+g.name+'» на '+pct+'%!'}</div>`:'';
+    const startDate=g.start?new Date(g.start):new Date(new Date(g.end).getFullYear(),0,1);
+    const totalDays=Math.max(1,Math.ceil((new Date(g.end)-startDate)/(864e5)));
+    const elapsedDays=Math.max(0,totalDays-Math.max(0,daysLeft));
+    const timePct=Math.min(100,Math.round((elapsedDays/totalDays)*100));
+    const daysLabel=daysLeft>0?(fr?'Reste '+daysLeft+' j.':en?daysLeft+' days left':'Осталось '+daysLeft+' '+daysWord(daysLeft)):daysLeft===0?(fr?"Aujourd'hui!":en?'Today!':'Сегодня!'):(fr?'Délai dépassé':en?'Overdue':'Срок прошёл');
+    const hist=(g.history||[]).slice().reverse();
+    const histHtml=hist.length===0
+      ? `<div style="font-size:11px;color:#4a6080;text-align:center;padding:10px 0">${fr?'Aucune opération':en?'No operations':'Нет операций'}</div>`
+      : hist.map(h=>{
+          const isDep=h.type==='deposit';
+          const isBal=h.type==='balance';
+          const clr=isDep?'#79a5f2':'#ff8fa0';
+          const sign=isDep?'+':'−';
+          const typeLabel=isBal?(fr?'Compensation solde':en?'Balance compensation':'Компенсация баланса'):isDep?(fr?'Alimentation':en?'Deposit':'Пополнение'):(fr?'Retrait':en?'Withdrawal':'Снятие');
+          return `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,0.04)">
+            <div style="width:28px;height:28px;border-radius:8px;background:${isDep?'rgba(121,165,242,0.1)':'rgba(255,107,107,0.1)'};color:${clr};display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0;line-height:1">${sign}</div>
+            <div style="flex:1;min-width:0"><div style="font-size:11px;font-weight:600;color:${clr}">${typeLabel}</div><div style="font-size:10px;color:#4a6080;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${h.note||'—'}</div></div>
+            <div style="text-align:right;flex-shrink:0"><div style="font-size:12px;font-weight:700;color:${clr}">${sign}${fmt(h.amount)} ${g.currency}</div><div style="font-size:10px;color:#4a6080">${h.date||''}</div></div>
+          </div>`;
+        }).join('');
     return `<div style="background:#131f35;border-radius:14px;padding:14px;margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:2px">
-        <div><div style="font-size:14px;font-weight:700;color:#fff">${g.name}</div><div style="font-size:10px;color:#4a6080;margin-top:2px">${PRIO_LABEL[g.priority]||PRIO_LABEL[2]}</div></div>
-        <div style="position:relative"><button onclick="toggleGoalMenu(${g.id})" style="background:none;border:none;color:#8899bb;font-size:20px;cursor:pointer;padding:0 4px;line-height:1;letter-spacing:1px">⋮</button>
-          <div id="gmenu-${g.id}" style="display:none;position:absolute;right:0;top:28px;background:#1a2740;border:1px solid #1e2f4a;border-radius:10px;z-index:50;min-width:130px;box-shadow:0 4px 16px rgba(0,0,0,0.4)">
-            <button onclick="addToGoal(${g.id})" style="display:block;width:100%;text-align:left;padding:9px 14px;background:none;border:none;color:#c8d8f0;font-size:13px;cursor:pointer;font-family:inherit;border-bottom:1px solid #1e2f4a">💰 ${fr?'Alimenter':'Пополнить'}</button>
-            <button onclick="editGoal(${g.id})" style="display:block;width:100%;text-align:left;padding:9px 14px;background:none;border:none;color:#c8d8f0;font-size:13px;cursor:pointer;font-family:inherit;border-bottom:1px solid #1e2f4a">${svgEdit()} ${fr?'Modifier':'Изменить'}</button>
-            <button onclick="document.getElementById('gmenu-'+${g.id})&&(document.getElementById('gmenu-'+${g.id}).style.display='none');deleteGoal(${g.id})" style="display:block;width:100%;text-align:left;padding:9px 14px;background:none;border:none;color:#ff7070;font-size:13px;cursor:pointer;font-family:inherit">❌ ${fr?'Supprimer':'Удалить'}</button>
-          </div>
-        </div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
+        <div><div style="font-size:14px;font-weight:700;color:#fff">${g.name}</div><div style="font-size:10px;color:${priColor};margin-top:2px;font-weight:600">● ${PRIO_LABEL[g.priority]||PRIO_LABEL[2]}</div></div>
+        <div style="position:relative"><button onclick="toggleGoalMenu(${g.id},event)" style="background:none;border:none;color:#8899bb;font-size:20px;cursor:pointer;padding:0 4px;line-height:1;letter-spacing:1px" onmouseenter="this.style.color='#c8d8f0'" onmouseleave="this.style.color='#8899bb'">⋮</button></div>
       </div>
-      <div style="display:flex;align-items:center;gap:10px;margin:10px 0 4px">
-        <div style="flex:1;background:#0f1829;border-radius:20px;height:12px;overflow:hidden">
-          <div style="background:${barColor};height:100%;width:${barW}%;border-radius:20px;transition:width .5s ease"></div>
-        </div>
-        <span style="font-size:13px;font-weight:600;color:${isOver?'#79a5f2':'#8899bb'};min-width:40px;text-align:right">${pct}%</span>
+      <div style="display:flex;align-items:center;gap:10px;margin:8px 0 4px">
+        <div style="flex:1;background:#0f1829;border-radius:20px;height:10px;overflow:hidden"><div style="background:${priGrad};height:100%;width:${barW}%;border-radius:20px;transition:width .5s ease"></div></div>
+        <span style="font-size:13px;font-weight:600;color:${isOver?priColor:'#8899bb'};min-width:40px;text-align:right">${pct}%</span>
       </div>
       ${overMsg}
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin:8px 0 10px">
-        <div style="background:#0f1829;border-radius:8px;padding:7px 10px;text-align:center"><div style="font-size:9px;color:#4a6080;margin-bottom:2px">${fr?'Épargné':'Накоплено'}</div><div style="font-size:12px;font-weight:600;color:${isOver?'#79a5f2':'#fff'}">${fmt(g.saved)}</div><div style="font-size:9px;color:#4a6080">${g.currency}</div></div>
-        <div style="background:#0f1829;border-radius:8px;padding:7px 10px;text-align:center"><div style="font-size:9px;color:#4a6080;margin-bottom:2px">${isOver?(fr?'Au-delà':'Сверх цели'):(fr?'Restant':'Осталось')}</div><div style="font-size:12px;font-weight:600;color:${isOver?'#79a5f2':'#c8d8f0'}">${isOver?fmt(g.saved-g.amount):fmt(remaining)}</div><div style="font-size:9px;color:#4a6080">${g.currency}</div></div>
-        <div style="background:#0f1829;border-radius:8px;padding:7px 10px;text-align:center"><div style="font-size:12px;font-weight:600;color:${daysColor}">${daysStr}</div></div>
+        <div style="background:#0f1829;border-radius:8px;padding:7px 10px;text-align:center;display:flex;flex-direction:column;justify-content:space-between"><span style="font-size:9px;color:#4a6080;display:block;margin-bottom:2px">${fr?'Épargné':en?'Saved':'Накоплено'}</span><div style="font-size:13px;font-weight:700;color:#fff;line-height:1.2">${fmt(g.saved)}</div><span style="font-size:9px;color:#4a6080;display:block;margin-top:2px">${g.currency}</span></div>
+        <div style="background:#0f1829;border-radius:8px;padding:7px 10px;text-align:center;display:flex;flex-direction:column;justify-content:space-between"><span style="font-size:9px;color:#4a6080;display:block;margin-bottom:2px">${isOver?(fr?'Au-delà':en?'Beyond':'Сверх'):(fr?'Restant':en?'Remaining':'Осталось')}</span><div style="font-size:13px;font-weight:700;color:#fff;line-height:1.2">${isOver?fmt(g.saved-g.amount):fmt(remaining)}</div><span style="font-size:9px;color:#4a6080;display:block;margin-top:2px">${g.currency}</span></div>
+        <div style="background:#0f1829;border-radius:8px;padding:7px 10px;text-align:center;display:flex;flex-direction:column;justify-content:space-between"><span style="font-size:9px;color:#4a6080;display:block;margin-bottom:2px">${fr?'Échéance':en?'Deadline':'Срок'}</span><div style="font-size:13px;font-weight:700;color:${daysColor};line-height:1.2">${daysLabel}</div><div style="height:4px;background:#1a2740;border-radius:20px;overflow:hidden;margin-top:4px"><div style="height:100%;width:${timePct}%;background:${priGrad};border-radius:20px"></div></div></div>
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px">
-        <div style="font-size:11px;color:#4a6080">${fmt(g.amount)} ${g.currency} · ${fr?'jusqu’au':'до'} ${fmtEnd}</div>
-        ${perMonth>0?`<div style="font-size:11px;color:#4dabf7">~${fmt(perMonth)} ${g.currency}/${fr?'mois':'мес'}</div>`:''}
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px;margin-bottom:12px">
+        <div style="font-size:11px;color:#4a6080">${fmt(g.amount)} ${g.currency} · ${fr?'jusqu\'au':en?'until':'до'} ${fmtEnd}</div>
+        ${perMonth>0?`<div style="font-size:11px;color:#4dabf7">~${fmt(perMonth)} ${g.currency}/${fr?'mois':en?'mo':'мес'}</div>`:''}
       </div>
+      <div onclick="toggleGoalHistory(${g.id})" style="display:flex;align-items:center;gap:6px;cursor:pointer;padding-top:10px;border-top:1px solid #1a2845;user-select:none">
+        <div id="gtri-${g.id}" style="width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #8899bb;flex-shrink:0;transition:transform .2s;transform:rotate(-90deg)"></div>
+        <div style="font-size:11px;color:#8899bb;font-weight:600;text-transform:uppercase;letter-spacing:.5px">${fr?'Histoire':en?'History':'История'}</div>
+        <div style="font-size:10px;color:#4a6080;margin-left:auto">${hist.length} ${fr?'opération'+(hist.length!==1?'s':''):en?'operation'+(hist.length!==1?'s':''):'операций'}</div>
+      </div>
+      <div id="ghist-${g.id}" style="display:none;margin-top:8px">${histHtml}</div>
     </div>`;
   }).join('');
 }
